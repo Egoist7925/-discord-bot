@@ -1,4 +1,4 @@
-import asyncio
+
 import os
 import random
 import re
@@ -16,6 +16,15 @@ import yt_dlp
 # Bot Tokenはコードへ直接書かず、環境変数から読み込む
 TOKEN = os.getenv("DISCORD_BOT_TOKEN", "").strip()
 TARGET_USER_NAME = "819ego"
+
+COOKIE_FILE = "cookies.txt"
+
+
+def add_cookie(opts):
+    """cookies.txt が存在するときだけ yt-dlp にCookieを渡す。"""
+    if os.path.exists(COOKIE_FILE):
+        opts["cookiefile"] = COOKIE_FILE
+    return opts
 
 PLAYLIST_URLS = {
     1: "https://youtube.com/playlist?list=PLFFoeaVOrPUc&si=c0tz_TQvIRcShAOd",
@@ -83,12 +92,12 @@ def fetch_playlist(url):
     if not url or not url.startswith("http"):
         return []
 
-    opts = {
+    opts = add_cookie({
         "extract_flat": "in_playlist",
         "quiet": True,
         "skip_download": True,
         "js_runtimes": {"deno": {}},
-    }
+    })
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -127,13 +136,13 @@ async def get_playlist():
 # 音源URL取得
 # =========================================================
 def fetch_stream(url):
-    opts = {
+    opts = add_cookie({
         "format": "bestaudio/best",
         "quiet": True,
         "noplaylist": True,
         "js_runtimes": {"deno": {}},
         "nocheckcertificate": True,
-    }
+    })
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -193,13 +202,13 @@ async def search_related_from_library():
         print("関連曲ライブラリーが空です。")
         return None
 
-    opts = {
+    opts = add_cookie({
         "quiet": True,
         "skip_download": True,
         "extract_flat": True,
         "noplaylist": True,
         "js_runtimes": {"deno": {}},
-    }
+    })
 
     playlist_ids = {
         track.get("url", "").split("v=")[-1].split("&")[0]
