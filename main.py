@@ -156,7 +156,8 @@ async def get_playlist():
 def fetch_stream(url):
     opts = add_youtube_stream_support(add_cookie({
         "format": "bestaudio/best",
-        "quiet": True,
+        "quiet": False,
+        "verbose": True,
         "noplaylist": True,
         "js_runtimes": {"deno": {}},
         "nocheckcertificate": True,
