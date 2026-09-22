@@ -1,3 +1,4 @@
 discord.py[voice]
 yt-dlp[default]
 PyNaCl
+bgutil-ytdlp-pot-provider==2.0.0
