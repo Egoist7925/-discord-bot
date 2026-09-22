@@ -2,6 +2,7 @@ import asyncio
 import os
 import random
 import re
+import shlex
 import time
 import unicodedata
 
@@ -153,22 +154,39 @@ async def get_playlist():
 # 音源URL取得
 # =========================================================
 def fetch_stream(url):
-    opts = add_cookie({
+    opts = add_youtube_stream_support(add_cookie({
         "format": "bestaudio/best",
         "quiet": True,
         "noplaylist": True,
         "js_runtimes": {"deno": {}},
         "nocheckcertificate": True,
-    })
+    }))
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            return info.get("url"), info.get("title", "Unknown")
+
+            # extract_info(download=False) で選ばれた実際の音声フォーマットを取得
+            selected = info
+            requested_downloads = info.get("requested_downloads") or []
+            if requested_downloads:
+                selected = requested_downloads[0] or info
+
+            stream_url = selected.get("url") or info.get("url")
+            title = info.get("title", "Unknown")
+
+            # yt-dlp が「このURLを取得するときに必要」と指定したHTTPヘッダーを
+            # FFmpegにもそのまま渡す。直接URLだけをFFmpegへ渡すと
+            # YouTube/GVS側で403になるケースがある。
+            http_headers = {}
+            http_headers.update(info.get("http_headers") or {})
+            http_headers.update(selected.get("http_headers") or {})
+
+            return stream_url, title, http_headers
 
     except Exception as e:
         print(f"Stream Error: {e}")
-        return None, None
+        return None, None, {}
 
 
 async def get_stream(url):
@@ -667,6 +685,7 @@ def _play_source(
     audio_url,
     title,
     track,
+    http_headers=None,
     offset_sec=None,
     add_history=True,
     fallback_to_start=False,
@@ -678,6 +697,21 @@ def _play_source(
     start_offset = max(0.0, float(offset_sec or 0.0))
 
     before_opts = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+
+    # yt-dlp が選択したストリーム用HTTPヘッダーをFFmpegへ引き継ぐ。
+    # YouTubeのgooglevideo.com直リンクは、URLだけでは403になる場合がある。
+    if http_headers:
+        header_lines = []
+        for key, value in http_headers.items():
+            if value is None:
+                continue
+            safe_key = str(key).replace("\r", "").replace("\n", "")
+            safe_value = str(value).replace("\r", "").replace("\n", "")
+            header_lines.append(f"{safe_key}: {safe_value}")
+
+        if header_lines:
+            header_blob = "\r\n".join(header_lines) + "\r\n"
+            before_opts += f" -headers {shlex.quote(header_blob)}"
 
     if start_offset > 0:
         before_opts += f" -ss {start_offset:.3f}"
@@ -765,7 +799,7 @@ async def play_resume_fallback_from_start(vc, track):
         return False
 
     try:
-        audio_url, title = await get_stream(track["url"])
+        audio_url, title, http_headers = await get_stream(track["url"])
 
         if not audio_url:
             print("フォールバック用音源URLを取得できませんでした。")
@@ -777,6 +811,7 @@ async def play_resume_fallback_from_start(vc, track):
             audio_url,
             title,
             track,
+            http_headers=http_headers,
             offset_sec=0,
             add_history=False,
             fallback_to_start=False,
@@ -805,7 +840,7 @@ async def resume_last_track(vc):
     saved_position = max(0.0, float(resume_position_sec))
 
     try:
-        audio_url, title = await get_stream(last_played_track["url"])
+        audio_url, title, http_headers = await get_stream(last_played_track["url"])
 
         if not audio_url:
             return await play_resume_fallback_from_start(
@@ -819,6 +854,7 @@ async def resume_last_track(vc):
                 audio_url,
                 title,
                 last_played_track,
+                http_headers=http_headers,
                 offset_sec=saved_position,
                 add_history=False,
                 fallback_to_start=saved_position > 0,
@@ -895,7 +931,7 @@ async def play_next_track(vc):
                     await asyncio.sleep(1)
                     continue
     
-            audio_url, title = await get_stream(track["url"])
+            audio_url, title, http_headers = await get_stream(track["url"])
     
             if not audio_url:
                 print(f"音源取得失敗 → スキップ: {track.get('title', 'Unknown')}")
@@ -907,6 +943,7 @@ async def play_next_track(vc):
                 audio_url,
                 title,
                 track,
+                http_headers=http_headers,
                 offset_sec=None,
                 add_history=True,
             )
@@ -925,7 +962,7 @@ async def play_specific_track(vc, track):
     if not vc or not vc.is_connected():
         return False
 
-    audio_url, title = await get_stream(track["url"])
+    audio_url, title, http_headers = await get_stream(track["url"])
 
     if not audio_url:
         print(f"戻る曲の音源取得失敗: {track.get('title', 'Unknown')}")
@@ -936,6 +973,7 @@ async def play_specific_track(vc, track):
         audio_url,
         title,
         track,
+        http_headers=http_headers,
         offset_sec=None,
         add_history=False,
     )
