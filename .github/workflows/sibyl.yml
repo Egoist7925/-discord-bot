@@ -31,6 +31,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          # yt-dlp公式は通常利用でもnightlyを推奨。YouTube側の変更対応を早く取り込む。
+          python -m pip install -U --pre "yt-dlp[default]"
+          python -m yt_dlp --version
 
       - name: Start PO Token provider
         run: |
